@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<title>Audio Visualization</title>
+	<script src="assets/p5/p5.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.4.5/addons/p5.dom.js"></script>
+	<script src="assets/p5/addons/p5.sound.js"></script>
+	<script src="https://unpkg.com/meyda@5.6.3/dist/web/meyda.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/gh/IDMNYU/p5.js-speech@0.0.3/lib/p5.speech.js"></script>
+	<style>
+#content {
+	display: flex;
+	flex-direction: row;
+	align-items: flex-start;
+}
+
+#canvas-container canvas {
+	border: 1px solid #ccc;
+}
+
+#instructions {
+	margin-left: 20px;
+	max-width: 300px;
+}
+	</style>
+</head>
+<body>
+<h1>Audio Visualization</h1>
+<div id="controls">
+	<!--	<button onclick="initAudioContext()">Initialize Audio</button>-->
+	<button onclick="playAudio()">Play MP3</button>
+	<button onclick="stopAudio()">Stop</button>
+	<button onclick="startMic()">Start Microphone</button>
+	<button onclick="saveScreenshot()">Save Screenshot</button>
+	<br>
+	<label for="volumeControl">Volume Control: </label>
+	<input type="range" id="volumeControl" min="0" max="1" step="0.01" value="0.5" oninput="setVolume(this.value)">
+</div>
+<div id="content">
+	<div id="canvas-container"></div>
+	<div id="instructions"></div>
+</div>
+<script>
+	
+/* These lines of code are declaring multiple variables and initializing them with certain values or
+types. Here is a breakdown of what each variable is for: */
+let audioContext, audioElement, isAudioSourceElement, source, sourceType, meydaAnalyzer, mic, micStream;
+let isPlaying = false;
+let shapeType = 'rectangle';
+let bgColor = 'black';
+let shapeColor = 'white';
+let speechRec;
+let volume = 0.5;
+let continuous = true;
+let interimResults = true;
+let savedTime = 1;
+
+/**
+ * The setup function creates a canvas, loads an audio file, and initializes the audio context.
+ */
+function setup() {
+	canvas = createCanvas(800, 600);
+	canvas.parent('canvas-container');
+
+	audioElement = createAudio('assets/sounds/Ex2_sounds/Kalte_Ohren_(_Remix_).mp3'); // Your audio file
+	audioElement.hide();
+	displayInstructions();
+
+
+	initAudioContext()
+}
+
+/**
+ * The function `initAudioContext` initializes the audio context and sets up a Meyda audio analyzer if
+ * one does not already exist.
+ */
+function initAudioContext() {
+	if (!audioContext) {
+		audioContext = getAudioContext();
+		setupMeydaAnalyzer();
+
+	}
+}
+
+/**
+ * The function `setupMeydaAnalyzer` sets up a Meyda audio analyzer to extract specific features from
+ * an audio source and visualize them on a canvas.
+ * @param [use=null] - The `use` parameter in the `setupMeydaAnalyzer` function is used to specify the
+ * type of audio source to be used for analysis. It can have two possible values:
+ */
+function setupMeydaAnalyzer(use = null) {
+	if (audioElement) {
+		source = audioContext.createMediaElementSource(audioElement.elt);
+		sourceType = 'audio'
+		isAudioSourceElement = true
+	} else if (micStream) {
+		source = audioContext.createMediaStreamSource(mic.stream);
+		sourceType = 'mic'
+		isAudioSourceElement = false
+	}
+	
+	source.connect(audioContext.destination);
+	meydaAnalyzer = Meyda.createMeydaAnalyzer({
+		audioContext: audioContext,
+		source: source,
+		bufferSize: 512,
+		featureExtractors: ['rms', 'spectralCentroid', 'spectralFlatness', 'spectralRolloff', 'energy'],
+		callback: features => {
+			background(bgColor);
+			noStroke();
+			fill(shapeColor);
+
+			let rms = map(features.rms, 0, 1, 0, height);
+			drawShape(50, height - rms, 100, rms);
+
+			let centroid = map(features.spectralCentroid, 0, 22050, 0, height);
+			drawShape(200, height - centroid, 100, centroid);
+
+			let flatness = map(features.spectralFlatness, 0, 1, 0, height);
+			drawShape(350, height - flatness, 100, flatness);
+
+			let rolloff = map(features.spectralRolloff, 0, 22050, 0, height);
+			drawShape(500, height - rolloff, 100, rolloff);
+
+			let energy = map(features.energy, 0, 1, 0, height);
+			drawShape(650, height - energy, 100, energy);
+		}
+	});
+}
+
+/**
+ * The function `setupSpeechRecognition` sets up voice recognition in JavaScript using the p5 library.
+ */
+function setupSpeechRecognition() {
+	// Voice recognition setup
+	if (!speechRec) {
+		speechRec = new p5.SpeechRec('en-US', gotSpeech);
+		speechRec.onResult = gotSpeech;
+		speechRec.onError = handleSpeechError;
+		speechRec.onEnd = handleSpeechEnd;
+		speechRec.start(continuous, interimResults);
+	}
+}
+
+/**
+ * The function `handleSpeechError` logs a speech recognition error along with the provided data.
+ * @param d - The parameter `d` in the `handleSpeechError` function likely represents the error object
+ * or data related to a speech recognition error. It could contain information such as the error
+ * message, error code, or any other relevant details that can help in diagnosing and handling the
+ * error within the speech recognition system
+ */
+function handleSpeechError(d) {
+	console.log('Speech recognition error', d);
+}
+
+/**
+ * The function `handleSpeechEnd` restarts speech recognition if it is set to continuous mode.
+ */
+function handleSpeechEnd() {
+	if (speechRec && speechRec.continuous) {
+		speechRec.start(continuous, interimResults);
+	}
+}
+
+/**
+ * The `draw` function starts or stops the Meyda audio analyzer based on the `isPlaying` flag.
+ */
+function draw() {
+	if (isPlaying && meydaAnalyzer) {
+		meydaAnalyzer.start();
+	} else if (meydaAnalyzer) {
+		meydaAnalyzer.stop();
+	}
+}
+
+/**
+ * The function `playAudio` plays an audio element and enables volume control if certain conditions are
+ * met.
+ */
+function playAudio() {
+	if (!isPlaying || sourceType === 'mic') {
+		userStartAudio();
+		if (meydaAnalyzer && isAudioSourceElement === false) {
+			meydaAnalyzer.setSource(audioContext.createMediaElementSource(audioElement.elt));
+			sourceType = 'audio'
+			isAudioSourceElement = true;
+		}
+
+		audioElement.play();
+		isPlaying = true;
+	}
+
+	document.getElementById('volumeControl').removeAttribute("disabled");
+
+}
+
+/**
+ * The function `stopAudio` stops the audio playback and microphone input if they are currently active.
+ */
+function stopAudio() {
+	if (isPlaying) {
+		audioElement.stop();
+		if (mic) {
+			mic.stop();
+		}
+		isPlaying = false;
+	}
+}
+
+/**
+ * The function `startMic` sets up speech recognition and audio input from a microphone for analysis.
+ */
+function startMic() {
+	if (!isPlaying || sourceType === 'audio') {
+		// lets register speach recongition
+		setupSpeechRecognition();
+
+		userStartAudio();
+		mic = new p5.AudioIn();
+		mic.start(() => {
+			micStream = audioContext.createMediaStreamSource(mic.stream);
+			isPlaying = true;
+			if (meydaAnalyzer) {
+				sourceType = 'mic'
+				meydaAnalyzer.setSource(micStream);
+
+				if (audioElement)
+					audioElement.stop();
+
+			} else {
+				setupMeydaAnalyzer();
+			}
+		});
+
+		document.getElementById('volumeControl').setAttribute("disabled", "disabled");
+
+	}
+}
+
+/**
+ * The function `setVolume` sets the volume of an audio element to a specified value.
+ * @param val - The `val` parameter in the `setVolume` function represents the volume level that you
+ * want to set. It is the value that will be assigned to the `volume` variable within the function.
+ */
+function setVolume(val) {
+	volume = val;
+	if (audioElement) {
+		audioElement.volume(volume);
+	}
+}
+
+/**
+ * The function `gotSpeech` processes speech input to change background color, shape type, and shape
+ * color based on specific commands.
+ */
+function gotSpeech() {
+	if (speechRec.resultValue) {
+		let command = speechRec.resultString.toLowerCase();
+
+		// change the background color section
+		if (command.includes('black')) {
+			bgColor = 'black';
+		} else if (command.includes('white')) {
+			bgColor = 'white';
+		} else if (command.includes('red')) {
+			bgColor = 'red';
+		} else if (command.includes('blue')) {
+			bgColor = 'blue';
+		} else if (command.includes('green')) {
+			bgColor = 'green';
+		}
+		// change the shapeType section
+		else if (command.includes('square')) {
+			shapeType = 'square';
+		} else if (command.includes('triangle')) {
+			shapeType = 'triangle';
+		} else if (command.includes('circle')) {
+			shapeType = 'circle';
+		} else if (command.includes('pentagon')) {
+			shapeType = 'pentagon';
+		} else if (command.includes('default')) {
+			shapeType = 'default';
+		}
+		// change the shapeColor section
+		else if (command.includes('yellow')) {
+			shapeColor = 'yellow';
+		} else if (command.includes('pink')) {
+			shapeColor = 'pink';
+		} else if (command.includes('cyan')) {
+			shapeColor = 'cyan';
+		} else if (command.includes('magenta')) {
+			shapeColor = 'magenta';
+		}
+	}
+}
+
+/**
+ * The function `drawShape` takes parameters for position and dimensions and draws different shapes
+ * based on the `shapeType` provided.
+ * @param x - The `x` parameter represents the x-coordinate of the shape's starting point.
+ * @param y - The `y` parameter in the `drawShape` function represents the vertical position of the
+ * shape on the canvas. It determines where the top edge of the shape will be located relative to the
+ * canvas or other elements on the screen.
+ * @param w - The parameter `w` in the `drawShape` function represents the width of the shape that will
+ * be drawn. It determines the horizontal size of the shape.
+ * @param h - The parameter `h` in the `drawShape` function represents the height of the shape that
+ * will be drawn. It is used to determine the vertical dimension of the shape along with the width
+ * (`w`) parameter.
+ */
+function drawShape(x, y, w, h) {
+	switch (shapeType) {
+		case 'square':
+			rect(x, y, w, w);
+			break;
+		case 'triangle':
+			triangle(x, y, x + w / 2, y - h, x + w, y);
+			break;
+		case 'circle':
+			ellipse(x + w / 2, y - h / 2, w, h);
+			break;
+		case 'pentagon':
+			beginShape();
+			for (let i = 0; i < 5; i++) {
+				let angle = TWO_PI / 5 * i;
+				let sx = x + cos(angle) * w / 2;
+				let sy = y - sin(angle) * h / 2;
+				vertex(sx, sy);
+			}
+			endShape(CLOSE);
+			break;
+		case 'default':
+			rect(x, y, w, h);
+			break;
+		default:
+			rect(x, y, w, h);
+	}
+}
+
+/**
+ * The function `saveScreenshot` saves a canvas as a PNG file with a unique filename based on the
+ * `savedTime` variable.
+ */
+function saveScreenshot() {
+	saveCanvas('audio_visualization_' + savedTime, 'png');
+	savedTime++;
+}
+
+/**
+ * The function `displayInstructions` sets HTML content to display instructions and voice commands for
+ * a visualization application.
+ */
+
+function displayInstructions() {
+			let instructions = `
+				<h2>Instructions</h2>
+				<p>- Click 'Play MP3' to start visualizing the pre-recorded MP3 file.</p>
+				<p>- Click 'Stop' to stop the audio or microphone input.</p>
+				<p>- Click 'Start Microphone' to start visualizing live microphone input.</p>
+				<p>- Use the volume control slider to adjust the volume.</p>
+				<p>- Click 'Save Screenshot' to save the current visualization as a PNG image.</p>
+				<h3>Voice Commands:</h3>
+				<p><strong>Background Colors:</strong> 'black','white', 'red', 'blue', 'green'</p>
+				<p><strong>Shape Types:</strong> 'square', 'triangle', 'circle', 'pentagon'</p>
+				<p><strong>Shape Colors:</strong> 'yellow', 'pink', 'cyan', 'magenta'</p>
+			`;
+			document.getElementById('instructions').innerHTML = instructions;
+		}
+</script>
+</body>
+</html>
